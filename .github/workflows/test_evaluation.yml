@@ -1,0 +1,66 @@
+name: Run Model Evaluation on Test Data
+
+on:
+  push:
+    branches:
+      - test
+  workflow_dispatch:
+
+jobs:
+  evaluate:
+    runs-on: [self-hosted, linux, automl-exam]
+    timeout-minutes: 15 # Kills hanging jobs
+
+    env:
+      REPO: ${{ github.repository }}
+
+    steps:
+      - name: Checkout student repo
+        run: ${{ secrets.SPARSE_CHECKOUT }}
+
+      - name: Check predictions file exists
+        run: ${{ secrets.CHECK_PREDICTIONS_FILE }}
+
+      - name: Clean caches
+        run: |
+          echo "🧹 Cleaning Python and system caches..."
+          find . -type d -name '__pycache__' -exec rm -rf {} +
+          rm -rf .pytest_cache .mypy_cache
+          
+          source ~/miniconda3/etc/profile.d/conda.sh
+          conda clean --all --yes || true
+          pip cache purge || true
+
+      - name: Set up isolated virtual environment
+        run: |
+          python3.10 -m venv .venv
+          source .venv/bin/activate
+
+          # Expose the virtual environment to the secret runner scripts
+          echo "VIRTUAL_ENV=$PWD/.venv" >> $GITHUB_ENV
+          echo "$PWD/.venv/bin" >> $GITHUB_PATH
+
+          # Install the specific requirements for the SS26 Tabular Exam
+          echo "Installing requirements..."
+          pip install --no-cache-dir numpy pandas scikit-learn pyarrow fastparquet
+
+      - name: Run evaluation script
+        run: ${{ secrets.RUN_EVALUATION }}
+
+      - name: Commit Test Output
+        working-directory: student-repo
+        run: ${{ secrets.COMMIT_TEST_OUTPUT  }}
+
+      - name: Display Evaluation Results
+        working-directory: student-repo
+        run: ${{ secrets.DISPLAY_EVALUATION_RESULTS }}
+
+      - name: Teardown isolated environment
+        if: always()
+        run: |
+          echo "🧹 Removing virtual environment..."
+          rm -rf .venv
+
+      - name: Cleanup student-repo
+        if: always()
+        run: ${{ secrets.CLEANUP_STUDENT_REPO }}
